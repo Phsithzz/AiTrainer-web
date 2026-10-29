@@ -30,3 +30,6 @@ backend/models/*.pkl
 # OS files
 .DS_Store
 Thumbs.db
+
+# Mobile standalone repository
+mobile/
