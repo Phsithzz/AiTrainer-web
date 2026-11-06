@@ -2,11 +2,49 @@ import { useState } from 'react';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+// ตรวจสอบสถานะการหมดอายุของ Token ทั้ง JWT และ Mock token
+export const isTokenExpired = (token) => {
+    if (!token) return true;
+    try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+            const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+            if (payload.exp) {
+                return Date.now() >= payload.exp * 1000;
+            }
+        }
+        // ตรวจสอบระยะเวลาบันทึกสำหรับ Token จำลองหรือ Token ทั่วไป (หมดอายุใน 24 ชั่วโมง)
+        const savedAt = localStorage.getItem("token_saved_at");
+        if (savedAt) {
+            const hours = (Date.now() - Number(savedAt)) / (1000 * 60 * 60);
+            return hours >= 24;
+        }
+        return false;
+    } catch {
+        return true;
+    }
+};
+
+// ดักจับ 401 Unauthorized เพื่อล้าง Token ที่หมดอายุ/ถูกยกเลิกออกจากเครื่องทันที
+axios.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401) {
+            localStorage.removeItem("token");
+            localStorage.removeItem("username");
+            localStorage.removeItem("token_saved_at");
+        }
+        return Promise.reject(error);
+    }
+);
+
 // 🟢 เพิ่มฟังก์ชันนี้ไว้ด้านบนสุด (ใต้บรรทัด API_URL)
 const getSafeErrorMessage = (err, defaultMsg = "เกิดข้อผิดพลาด") => {
     const detail = err.response?.data?.detail;
     return typeof detail === 'string' ? detail : defaultMsg;
 };
+
 export function useAuth() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -15,12 +53,17 @@ export function useAuth() {
         setIsLoading(true);
         setError(null);
         try {
-            // โยน Object เข้าไปได้เลย ไม่ต้อง stringify
+            // ล้างข้อมูลบัญชีเก่าก่อนเข้าสู่ระบบบัญชีใหม่
+            localStorage.removeItem("token");
+            localStorage.removeItem("username");
+            localStorage.removeItem("token_saved_at");
+
             const res = await axios.post(`${API_URL}/auth/login`, { identifier, password });
             
-            // 🟢 เก็บ Token ลงเครื่อง (Axios ดึงข้อมูลจาก res.data)
+            // 🟢 เก็บ Token ลงเครื่องพร้อมบันทึก Timestamp
             localStorage.setItem("token", res.data.access_token);
             localStorage.setItem("username", res.data.username || identifier);
+            localStorage.setItem("token_saved_at", Date.now().toString());
             return true; 
         } catch (err) {
             // ดึงข้อความ Error จาก FastAPI (ถ้ามี detail ส่งมา)
@@ -208,7 +251,6 @@ const getProfile = async () => {
     const logout = () => {
         const token = localStorage.getItem("token");
         if (token) {
-            // 🟢 เอา await ออก เพื่อไม่ให้บล็อกการเปลี่ยนหน้าเว็บ
             axios.post(`${API_URL}/auth/logout`, {}, {
                 headers: { "Authorization": `Bearer ${token}` }
             }).catch(err => {
@@ -216,12 +258,21 @@ const getProfile = async () => {
             });
         }
         
-        // ลบข้อมูลทันที ไม่ต้องรอ API
+        // ลบข้อมูล Token และ Session ทั้งหมดออกจากเครื่อง
         localStorage.removeItem("token");
         localStorage.removeItem("username");
+        localStorage.removeItem("token_saved_at");
     };
 
-    const getToken = () => localStorage.getItem("token");
+    const getToken = () => {
+        const token = localStorage.getItem("token");
+        if (!token) return null;
+        if (isTokenExpired(token)) {
+            logout();
+            return null;
+        }
+        return token;
+    };
 
   return {
         login, register, logout, getToken,
