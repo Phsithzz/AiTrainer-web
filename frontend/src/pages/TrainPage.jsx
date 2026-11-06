@@ -3,6 +3,15 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useExerciseWS } from "../hooks/useExerciseWS";
 import { IoMdArrowRoundBack } from "react-icons/io";
 import Swal from 'sweetalert2'; // 🟢 Import SweetAlert2
+import squatRef from "../assets/images/squat_ref.gif";
+import pushupRef from "../assets/images/pushup_ref.gif";
+import plankRef from "../assets/images/plank_ref.gif";
+
+const EXERCISE_GIFS = {
+  squat: squatRef,
+  pushup: pushupRef,
+  plank: plankRef,
+};
 
 export default function TrainPage({ onFinish, isLoggedIn }) {
   const { exercise } = useParams();
@@ -16,6 +25,7 @@ export default function TrainPage({ onFinish, isLoggedIn }) {
   const [countdown, setCountdown] = useState(null);
   const [isExplaining, setIsExplaining] = useState(false);
   const [shouldPromptLogin, setShouldPromptLogin] = useState(false);
+  const [isSimulated, setIsSimulated] = useState(false);
 
   // 🟢 1. State สำหรับระบบ Sets & Reps
   const { result, wsStatus, resetSession, cfg, cameraReady, cameraError } = useExerciseWS(
@@ -23,7 +33,8 @@ export default function TrainPage({ onFinish, isLoggedIn }) {
     videoRef,
     overlayRef,
     active,
-    isTracking
+    isTracking,
+    isSimulated
   );
   const hasPermission = cameraReady;
   
@@ -57,9 +68,39 @@ export default function TrainPage({ onFinish, isLoggedIn }) {
 
   // 🟢 2. Camera status from the client-side MediaPipe hook
   useEffect(() => {
-    if (!cameraError) return;
+    if (!cameraError || isSimulated) return;
 
     console.error("Camera error:", cameraError);
+    const isMock = import.meta.env.VITE_IS_MOCK === "true";
+
+    if (isMock) {
+      Swal.fire({
+        icon: 'info',
+        title: 'CAMERA NOT DETECTED',
+        text: 'ไม่สามารถเปิดกล้องได้ในขณะนี้ ต้องการเปิดโหมด Simulation (จำลองคนออกกำลังกายอัตโนมัติ สำหรับ Demo Portfolio) หรือไม่?',
+        background: '#18181b',
+        color: '#a1a1aa',
+        showCancelButton: true,
+        confirmButtonText: 'RUN SIMULATION',
+        cancelButtonText: 'BACK TO MENU',
+        confirmButtonColor: '#00ff88',
+        cancelButtonColor: '#71717a',
+        customClass: {
+          popup: 'border border-emerald-500/30 rounded-3xl',
+          title: 'text-emerald-400 font-black tracking-widest text-xl',
+          confirmButton: 'text-black font-black tracking-widest rounded-full px-8 py-3 mt-2',
+          cancelButton: 'text-zinc-300 font-bold tracking-widest rounded-full px-8 py-3 mt-2'
+        }
+      }).then((res) => {
+        if (res.isConfirmed) {
+          setIsSimulated(true);
+        } else {
+          navigate('/');
+        }
+      });
+      return;
+    }
+
     Swal.fire({
       icon: 'error',
       title: 'CAMERA ACCESS DENIED',
@@ -76,7 +117,7 @@ export default function TrainPage({ onFinish, isLoggedIn }) {
     }).then(() => {
       navigate('/');
     });
-  }, [cameraError, navigate]);
+  }, [cameraError, navigate, isSimulated]);
 
   // 🟢 3. จัดการนับถอยหลัง
   useEffect(() => {
@@ -259,15 +300,22 @@ export default function TrainPage({ onFinish, isLoggedIn }) {
           <IoMdArrowRoundBack size={16} /> BACK
         </button>
 
-        <div className="flex items-center gap-4 bg-zinc-900/50 border border-zinc-800 px-4 py-2 rounded-full">
-          <div
-            className="w-2.5 h-2.5 rounded-full animate-pulse shadow-[0_0_8px_currentColor]"
-            style={{
-              backgroundColor: wsStatus === "connected" ? accent : wsStatus === "connecting" ? "#eab308" : "#ef4444",
-              color: wsStatus === "connected" ? accent : wsStatus === "connecting" ? "#eab308" : "#ef4444"
-            }}
-          />
-          <span className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">{wsStatus}</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4 bg-zinc-900/50 border border-zinc-800 px-4 py-2 rounded-full">
+            <div
+              className="w-2.5 h-2.5 rounded-full animate-pulse shadow-[0_0_8px_currentColor]"
+              style={{
+                backgroundColor: wsStatus === "connected" ? accent : wsStatus === "connecting" ? "#eab308" : "#ef4444",
+                color: wsStatus === "connected" ? accent : wsStatus === "connecting" ? "#eab308" : "#ef4444"
+              }}
+            />
+            <span className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">{wsStatus}</span>
+          </div>
+          {isSimulated && (
+            <span className="text-[10px] font-black tracking-widest px-3 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-cyan-400">
+              SIMULATION DEMO
+            </span>
+          )}
         </div>
 
         <span
@@ -504,7 +552,7 @@ export default function TrainPage({ onFinish, isLoggedIn }) {
                   {isExplaining ? (
                     <>
                       <div className="w-full md:w-[32rem] aspect-video bg-zinc-950 rounded-3xl overflow-hidden border border-zinc-700 mb-8 shadow-[0_0_40px_rgba(0,0,0,0.6)]">
-                        <img src={`/src/assets/images/${exercise}_ref.gif`} alt={`${exercise} reference`} className="w-full h-full object-contain" />
+                        <img src={EXERCISE_GIFS[exercise] || squatRef} alt={`${exercise} reference`} className="w-full h-full object-contain" />
                       </div>
                       <div className="text-white text-2xl md:text-3xl tracking-[0.2em] font-black mb-4 drop-shadow-md" style={{ color: accent }}>HOW TO DO IT</div>
                       <p className="text-sm md:text-base text-zinc-300 leading-relaxed font-medium mb-10 max-w-lg">{cfg.instructionText}</p>

@@ -70,10 +70,14 @@ if (import.meta.env.VITE_IS_MOCK === "true") {
       this.url = url;
       this.readyState = 1; // OPEN
       this.exercise = url.split('/').pop();
-      this.reps = 0;
+      this.good_count = 0;
+      this.bad_count = 0;
+      this.bad_details = {};
+      this.total_time = 0;
       this.lastY = null;
       this.isDown = false;
       this.frames = 0;
+      this.lastTime = Date.now();
       
       setTimeout(() => {
         if (this.onopen) this.onopen();
@@ -83,41 +87,74 @@ if (import.meta.env.VITE_IS_MOCK === "true") {
     send(data) {
       const parsed = JSON.parse(data);
       if (parsed.action === 'reset') {
-        this.reps = 0;
+        this.good_count = 0;
+        this.bad_count = 0;
+        this.bad_details = {};
+        this.total_time = 0;
         this.frames = 0;
+        this.isDown = false;
+        this.lastY = null;
         if (this.onmessage) this.onmessage({ data: JSON.stringify({ action: 'reset_ok' }) });
         return;
       }
       
       if (parsed.action === 'predict' && parsed.landmarks) {
         this.frames++;
-        const noseY = parsed.landmarks[0].y;
+        const now = Date.now();
+        const dt = (now - this.lastTime) / 1000;
+        this.lastTime = now;
+
+        const nose = parsed.landmarks[0];
+        const noseY = nose ? nose.y : 0.5;
         
-        // Randomly simulate bad form occasionally
-        const isBad = Math.random() < 0.1;
         let label = this.exercise + "_good";
-        if (isBad) {
-            if (this.exercise === 'squat') label = Math.random() > 0.5 ? 'squat_bad_heel' : 'squat_bad_back';
-            else if (this.exercise === 'pushup') label = 'pushup_bad_hips';
-            else if (this.exercise === 'plank') label = 'plank_bad_hips';
-        }
-        
-        // Simulate rep counting based on head bobbing up and down
+        let feedback = "";
+        let newRep = false;
+
         if (this.exercise === "squat" || this.exercise === "pushup") {
           if (this.lastY !== null) {
-              if (noseY > this.lastY + 0.02) this.isDown = true;
-              else if (noseY < this.lastY - 0.02 && this.isDown) {
-                 this.reps++;
-                 this.isDown = false;
-              }
+            if (noseY > this.lastY + 0.015) {
+              this.isDown = true;
+            } else if (noseY < this.lastY - 0.015 && this.isDown) {
+              this.isDown = false;
+              newRep = true;
+            }
           }
-        } else {
-          // Plank mode uses timer in the frontend, no reps needed
-          this.reps = 0; 
-        }
-        this.lastY = noseY;
+          this.lastY = noseY;
 
-        // Mock backend response
+          if (newRep) {
+            const isBad = Math.random() < 0.25;
+            if (isBad) {
+              if (this.exercise === "squat") {
+                label = Math.random() > 0.5 ? "squat_bad_heel" : "squat_bad_back";
+                feedback = label === "squat_bad_heel" ? "ส้นเท้าลอย! ถ่ายน้ำหนักลงส้นเท้า" : "หลังโค้ง! ยืดอกขึ้น เกร็งหน้าท้อง";
+              } else {
+                const badTypes = ["pushup_bad_hips", "pushup_bad_legs", "pushup_bad_neck"];
+                label = badTypes[Math.floor(Math.random() * badTypes.length)];
+                feedback = label === "pushup_bad_hips" ? "สะโพกยกหรือห้อย! ล็อคแกนกลางลำตัวให้ตรง" : "ขางอ! เหยียดขาให้ตึงตลอดเวลา";
+              }
+              this.bad_count++;
+              this.bad_details[label] = (this.bad_details[label] || 0) + 1;
+            } else {
+              this.good_count++;
+              label = this.exercise + "_good";
+            }
+          }
+        } else if (this.exercise === "plank") {
+          if (dt > 0 && dt < 1) {
+            this.total_time += dt;
+          }
+          if (Math.random() < 0.05) {
+            const badTypes = ["plank_bad_hips", "plank_bad_legs", "plank_bad_neck"];
+            label = badTypes[Math.floor(Math.random() * badTypes.length)];
+            feedback = "สะโพกโด่งหรือตก! เกร็งหน้าท้องให้ลำตัวขนานกับพื้น";
+            this.bad_details[label] = (this.bad_details[label] || 0) + 1;
+            this.bad_count++;
+          } else {
+            label = "plank_good";
+          }
+        }
+
         setTimeout(() => {
           if (this.onmessage) {
             this.onmessage({
@@ -125,13 +162,21 @@ if (import.meta.env.VITE_IS_MOCK === "true") {
                 pose_detected: true,
                 label: label,
                 confidence: 0.95,
-                reps: this.reps,
-                landmarks: parsed.landmarks, // echo back to draw
+                feedback: feedback,
+                reps: this.good_count + this.bad_count,
+                good_count: this.good_count,
+                bad_count: this.bad_count,
+                bad_details: this.bad_details,
+                state: this.isDown ? "DOWN" : "UP",
+                total_time: Math.round(this.total_time * 10) / 10,
+                is_holding: this.exercise === "plank",
+                elbow_angle: this.exercise === "pushup" ? (this.isDown ? 85 : 160) : null,
+                landmarks: parsed.landmarks,
                 proba: { [label]: 0.95 }
               })
             });
           }
-        }, 30); // ~30ms latency mock
+        }, 30);
       }
     }
     
