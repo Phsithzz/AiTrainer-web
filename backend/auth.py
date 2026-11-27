@@ -1,4 +1,4 @@
-from passlib.context import CryptContext
+import bcrypt
 from jose import jwt, JWTError
 import psycopg2
 from datetime import datetime, timedelta
@@ -20,14 +20,28 @@ SECRET_KEY = os.getenv("SECRET_KEY", "default-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", 24))
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
-def get_password_hash(password: str):
-    return pwd_context.hash(password)
+# bcrypt is used directly: passlib 1.7.x breaks against bcrypt >= 5 (its backend
+# self-test sends a >72-byte password, which bcrypt 5 rejects), turning every
+# register/login into a 500. bcrypt only hashes the first 72 bytes, so we truncate
+# explicitly, which matches the hashes passlib stored before.
+_BCRYPT_MAX_BYTES = 72
 
-def verify_password(plain_password: str, hashed_password: str):
-    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    secret = password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+    return bcrypt.hashpw(secret, bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8")[:_BCRYPT_MAX_BYTES],
+            hashed_password.encode("utf-8"),
+        )
+    except (ValueError, TypeError):
+        return False
 
 def create_access_token(data: dict):
     to_encode = data.copy()
