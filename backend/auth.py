@@ -16,7 +16,10 @@ from email.mime.multipart import MIMEMultipart
 
 load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
-SECRET_KEY = os.getenv("SECRET_KEY", "default-secret-key")
+# No fallback: a default key in a public repository would let anyone forge tokens.
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY is not set; add it to backend/.env or the server environment")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", 24))
 
